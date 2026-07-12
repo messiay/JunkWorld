@@ -33,7 +33,7 @@ class Simulation:
             "latency": 0.0,
             "tokens": 0
         }
-        self.previous_log_msg = "None / Start of simulation."
+        self.last_action_result = "None (simulation just started)."
 
         # Generational metrics trackers
         self.gen_charge_gained = 0.0
@@ -107,6 +107,14 @@ class Simulation:
                 self.global_tick -= 1
                 return
         else:
+            # Calculate standing_on
+            if self.agent.position in self.world.charge_nodes:
+                standing_on = "Charge Node"
+            elif self.agent.position in self.world.vault_locations:
+                standing_on = "Vault (Solved)" if self.agent.position in self.world.solved_vaults else "Vault (Unsolved)"
+            else:
+                standing_on = "Nothing"
+
             # LLM Mode
             start_time = time.time()
             action_name, action_args, reasoning, tokens_used, error_occurred = self.llm_client.decide_action(
@@ -115,7 +123,8 @@ class Simulation:
                 charge=self.agent.charge,
                 position=self.agent.position,
                 perception=perception,
-                previous_log_msg=self.previous_log_msg
+                last_result=self.last_action_result,
+                standing_on=standing_on
             )
             latency = time.time() - start_time
 
@@ -174,7 +183,7 @@ class Simulation:
             log_msg = "Agent died due to cognitive tax."
 
         # Save previous action result for next tick observation
-        self.previous_log_msg = log_msg
+        self.last_action_result = log_msg
 
         # Update HUD state
         self.last_action_info = {
@@ -244,7 +253,7 @@ class Simulation:
         self.generation += 1
         self.world.reset_for_new_generation()
         self.llm_client.reset_history()
-        self.previous_log_msg = "None / Respawned at origin."
+        self.last_action_result = "None (simulation just started)."
 
         # Create new agent at spawn point
         self.agent = Agent(self.generation, self.world.spawn_pos)

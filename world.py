@@ -162,30 +162,28 @@ class World:
                 cell_biome = self.grid[y][x]
                 char = '.'
 
-                if (x, y) == (ax, ay):
-                    char = '@'
-                elif (x, y) in self.charge_nodes:
-                    char = 'G'
+                is_here = (x, y) == (ax, ay)
+                here_tag = " [YOU ARE HERE]" if is_here else ""
+
+                if (x, y) in self.charge_nodes:
+                    char = '@' if is_here else 'G'
                     dir_str = self._get_direction_string(dx, dy)
-                    details.append(f"- Charge Node at relative position ({dx}, {dy}) {dir_str}")
+                    details.append(f"- Charge Node at relative position ({dx}, {dy}) {dir_str}{here_tag}")
                 elif (x, y) in self.vault_locations:
                     is_solved = (x, y) in self.solved_vaults
-                    char = 'v' if is_solved else 'V'
+                    char = '@' if is_here else ('v' if is_solved else 'V')
                     status = "Solved" if is_solved else "Unsolved"
                     dir_str = self._get_direction_string(dx, dy)
-                    details.append(f"- Vault ({status}) at relative position ({dx}, {dy}) {dir_str}")
+                    details.append(f"- Vault ({status}) at relative position ({dx}, {dy}) {dir_str}{here_tag}")
                 elif (x, y) in self.signs:
-                    char = 'S'
+                    char = '@' if is_here else 'S'
                     text = self.signs[(x, y)]
                     dir_str = self._get_direction_string(dx, dy)
-                    details.append(f"- Sign at relative position ({dx}, {dy}) {dir_str} containing text: \"{text}\"")
+                    details.append(f"- Sign at relative position ({dx}, {dy}) {dir_str} containing text: \"{text}\"{here_tag}")
+                elif is_here:
+                    char = '@'
                 else:
-                    if cell_biome == 'WALL':
-                        char = '#'
-                    elif cell_biome == 'CHOKEPOINT':
-                        char = 'C'
-                    else:
-                        char = '.'
+                    char = '#' if cell_biome == 'WALL' else ('C' if cell_biome == 'CHOKEPOINT' else '.')
 
                 line_chars.append(char)
             ascii_lines.append(" ".join(line_chars))

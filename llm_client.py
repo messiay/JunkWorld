@@ -41,7 +41,7 @@ class LLMClient:
             "}"
         )
 
-    def decide_action(self, generation: int, ticks_survived: int, charge: float, position: tuple, perception: dict, previous_log_msg: str) -> tuple:
+    def decide_action(self, generation: int, ticks_survived: int, charge: float, position: tuple, perception: dict, last_result: str = "None.", standing_on: str = "Nothing") -> tuple:
         """
         Communicates with the LLM API to get the next action.
         Returns: (action_name, action_args, reasoning, output_tokens, error_occurred)
@@ -51,7 +51,8 @@ class LLMClient:
         visible_details_str = "\n".join(perception["details"]) if perception["details"] else "None"
 
         current_observation = (
-            f"LAST ACTION RESULT: {previous_log_msg}\n\n"
+            f"LAST ACTION RESULT: {last_result}\n\n"
+            f"YOU ARE CURRENTLY STANDING ON: {standing_on}\n\n"
             f"STATE:\n"
             f"- Generation: {generation}\n"
             f"- Ticks Survived: {ticks_survived}\n"
