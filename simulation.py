@@ -35,6 +35,19 @@ class Simulation:
         }
         self.last_action_result = "None (simulation just started)."
 
+        # Write start marker to JSONL file
+        if self.mode != "mock":
+            import json
+            try:
+                marker_entry = {
+                    "marker": f"=== START OF SIMULATION RUN WITH MODEL: {self.llm_client.model_name} ===",
+                    "timestamp": time.time()
+                }
+                with open(config.LLM_LOG_FILE, "a", encoding="utf-8") as lf:
+                    lf.write(json.dumps(marker_entry) + "\n")
+            except Exception:
+                pass
+
         # Generational metrics trackers
         self.gen_charge_gained = 0.0
         self.gen_charge_spent = 0.0
@@ -43,12 +56,27 @@ class Simulation:
         self.gen_vaults_solved = 0
 
     def init_csv_files(self):
-        """Creates CSV log files with headers if they do not exist."""
-        # 1. Tick log
-        if not os.path.exists(config.TICK_LOG_FILE):
+        """Creates CSV log files with headers if they do not exist, or migrates them to include 'model' column."""
+        # 1. Tick log migration/init
+        if os.path.exists(config.TICK_LOG_FILE):
+            with open(config.TICK_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+            if header and header[0] != "model":
+                print("Migrating ticks.csv to include 'model' column...")
+                with open(config.TICK_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
+                    rows = list(csv.reader(f))
+                new_rows = [["model"] + rows[0]]
+                for r in rows[1:]:
+                    new_rows.append(["qwen2.5:1.5b"] + r)
+                with open(config.TICK_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerows(new_rows)
+        else:
             with open(config.TICK_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow([
+                    "model",
                     "generation", 
                     "tick", 
                     "charge", 
@@ -59,11 +87,26 @@ class Simulation:
                     "signs_written_count"
                 ])
 
-        # 2. Generation log
-        if not os.path.exists(config.GEN_LOG_FILE):
+        # 2. Generation log migration/init
+        if os.path.exists(config.GEN_LOG_FILE):
+            with open(config.GEN_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, None)
+            if header and header[0] != "model":
+                print("Migrating generations.csv to include 'model' column...")
+                with open(config.GEN_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
+                    rows = list(csv.reader(f))
+                new_rows = [["model"] + rows[0]]
+                for r in rows[1:]:
+                    new_rows.append(["qwen2.5:1.5b"] + r)
+                with open(config.GEN_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerows(new_rows)
+        else:
             with open(config.GEN_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow([
+                    "model",
                     "generation",
                     "ticks_survived",
                     "charge_efficiency",
@@ -215,9 +258,11 @@ class Simulation:
 
     def log_tick_to_csv(self, tokens_used, signs_read_count, signs_written_this_tick):
         """Appends a row to ticks.csv."""
+        model_col = "mock" if self.mode == "mock" else self.llm_client.model_name
         with open(config.TICK_LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
+                model_col,
                 self.agent.generation,
                 self.agent.ticks_survived,
                 round(self.agent.charge, 2),
@@ -235,10 +280,12 @@ class Simulation:
         if self.gen_charge_spent > 0.0:
             efficiency = self.gen_charge_gained / self.gen_charge_spent
 
+        model_col = "mock" if self.mode == "mock" else self.llm_client.model_name
         # Write to generations.csv
         with open(config.GEN_LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
+                model_col,
                 self.agent.generation,
                 self.agent.ticks_survived,
                 round(efficiency, 3),
