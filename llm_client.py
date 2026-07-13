@@ -83,7 +83,7 @@ class LLMClient:
             "model": self.model_name,
             "messages": messages,
             "max_tokens": max_tokens,
-            "temperature": 0.2,
+            "temperature": config.LLM_TEMPERATURE,
             "response_format": {"type": "json_object"}
         }
 

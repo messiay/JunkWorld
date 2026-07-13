@@ -56,19 +56,32 @@ class Simulation:
         self.gen_vaults_solved = 0
 
     def init_csv_files(self):
-        """Creates CSV log files with headers if they do not exist, or migrates them to include 'model' column."""
+        """Creates CSV log files with headers if they do not exist, or migrates them to include 'model' and 'temperature' columns."""
         # 1. Tick log migration/init
         if os.path.exists(config.TICK_LOG_FILE):
             with open(config.TICK_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
                 reader = csv.reader(f)
                 header = next(reader, None)
+            
+            # Case A: Totally old header without 'model'
             if header and header[0] != "model":
-                print("Migrating ticks.csv to include 'model' column...")
+                print("Migrating ticks.csv to include 'model' and 'temperature' columns...")
                 with open(config.TICK_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
                     rows = list(csv.reader(f))
-                new_rows = [["model"] + rows[0]]
+                new_rows = [["model", "temperature"] + rows[0]]
                 for r in rows[1:]:
-                    new_rows.append(["qwen2.5:1.5b"] + r)
+                    new_rows.append(["qwen2.5:1.5b", 0.2] + r)
+                with open(config.TICK_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerows(new_rows)
+            # Case B: Header has 'model' but does not have 'temperature'
+            elif header and "temperature" not in header:
+                print("Migrating ticks.csv to include 'temperature' column...")
+                with open(config.TICK_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
+                    rows = list(csv.reader(f))
+                new_rows = [[rows[0][0], "temperature"] + rows[0][1:]]
+                for r in rows[1:]:
+                    new_rows.append([r[0], 0.2] + r[1:])
                 with open(config.TICK_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     writer.writerows(new_rows)
@@ -77,6 +90,7 @@ class Simulation:
                 writer = csv.writer(f)
                 writer.writerow([
                     "model",
+                    "temperature",
                     "generation", 
                     "tick", 
                     "charge", 
@@ -92,17 +106,42 @@ class Simulation:
             with open(config.GEN_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
                 reader = csv.reader(f)
                 header = next(reader, None)
+            
+            # Case A: Totally old header
             if header and header[0] != "model":
-                print("Migrating generations.csv to include 'model' column...")
+                print("Migrating generations.csv to include 'model' and 'temperature' columns...")
                 with open(config.GEN_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
                     rows = list(csv.reader(f))
-                new_rows = [["model"] + rows[0]]
+                new_rows = [["model", "temperature"] + rows[0]]
                 for r in rows[1:]:
-                    new_rows.append(["qwen2.5:1.5b"] + r)
+                    new_rows.append(["qwen2.5:1.5b", 0.2] + r)
+                with open(config.GEN_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerows(new_rows)
+            # Case B: Has 'model' but not 'temperature'
+            elif header and "temperature" not in header:
+                print("Migrating generations.csv to include 'temperature' column...")
+                with open(config.GEN_LOG_FILE, mode="r", newline="", encoding="utf-8") as f:
+                    rows = list(csv.reader(f))
+                new_rows = [[rows[0][0], "temperature"] + rows[0][1:]]
+                for r in rows[1:]:
+                    new_rows.append([r[0], 0.2] + r[1:])
                 with open(config.GEN_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
                     writer = csv.writer(f)
                     writer.writerows(new_rows)
         else:
+            with open(config.GEN_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "model",
+                    "temperature",
+                    "generation",
+                    "ticks_survived",
+                    "charge_efficiency",
+                    "signs_written",
+                    "vaults_attempted",
+                    "vaults_solved"
+                ])
             with open(config.GEN_LOG_FILE, mode="w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow([
@@ -259,10 +298,12 @@ class Simulation:
     def log_tick_to_csv(self, tokens_used, signs_read_count, signs_written_this_tick):
         """Appends a row to ticks.csv."""
         model_col = "mock" if self.mode == "mock" else self.llm_client.model_name
+        temp_col = 0.0 if self.mode == "mock" else config.LLM_TEMPERATURE
         with open(config.TICK_LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
                 model_col,
+                temp_col,
                 self.agent.generation,
                 self.agent.ticks_survived,
                 round(self.agent.charge, 2),
@@ -281,11 +322,13 @@ class Simulation:
             efficiency = self.gen_charge_gained / self.gen_charge_spent
 
         model_col = "mock" if self.mode == "mock" else self.llm_client.model_name
+        temp_col = 0.0 if self.mode == "mock" else config.LLM_TEMPERATURE
         # Write to generations.csv
         with open(config.GEN_LOG_FILE, mode="a", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow([
                 model_col,
+                temp_col,
                 self.agent.generation,
                 self.agent.ticks_survived,
                 round(efficiency, 3),
