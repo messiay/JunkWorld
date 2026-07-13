@@ -96,8 +96,8 @@ class LLMClient:
         start_time = time.time()
 
         try:
-            # We call the endpoint synchronously. Timeout set to 15s.
-            response = httpx.post(self.api_url, json=payload, timeout=15.0)
+            # We call the endpoint synchronously. Timeout set to 60s.
+            response = httpx.post(self.api_url, json=payload, timeout=60.0)
             
             if response.status_code == 200:
                 resp_data = response.json()
