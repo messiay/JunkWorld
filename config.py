@@ -1,5 +1,14 @@
 import os
 
+# Fallback .env parser to avoid extra dependency
+if os.path.exists(".env"):
+    with open(".env", "r") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                os.environ[key.strip()] = val.strip()
+
 # Grid settings
 GRID_SIZE = 32
 VISION_RADIUS = 3  # Chebyshev, yields a 7x7 visible window

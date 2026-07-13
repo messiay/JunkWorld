@@ -79,13 +79,7 @@ class LLMClient:
         messages.extend(history_to_send)
         messages.append({"role": "user", "content": current_observation})
 
-        payload = {
-            "model": self.model_name,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": config.LLM_TEMPERATURE,
-            "response_format": {"type": "json_object"}
-        }
+        is_gemini = "gemini" in self.model_name.lower()
 
         action_name = "rest"
         action_args = {}
@@ -94,30 +88,96 @@ class LLMClient:
         error_occurred = False
         content_str = None
         start_time = time.time()
-
         try:
-            # We call the endpoint synchronously. Timeout set to 60s.
-            response = httpx.post(self.api_url, json=payload, timeout=60.0)
-            
-            if response.status_code == 200:
-                resp_data = response.json()
-                choice = resp_data["choices"][0]
-                content_str = choice["message"]["content"]
-                
-                # Extract token usage if available
-                usage = resp_data.get("usage", {})
-                output_tokens = usage.get("completion_tokens", len(content_str) // 4)
+            if is_gemini:
+                import os
+                api_key = os.environ.get("GEMINI_API_KEY", "")
+                if not api_key:
+                    return "rest", {}, "Error: GEMINI_API_KEY not found in environment or .env file.", 0, True
 
+                model_to_use = self.model_name
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_to_use}:generateContent?key={api_key}"
+
+                # Format contents for Google AI Studio
+                contents = []
+                for msg in history_to_send:
+                    role = "model" if msg["role"] == "assistant" else "user"
+                    contents.append({
+                        "role": role,
+                        "parts": [{"text": msg["content"]}]
+                    })
+                contents.append({
+                    "role": "user",
+                    "parts": [{"text": current_observation}]
+                })
+
+                payload = {
+                    "contents": contents,
+                    "systemInstruction": {
+                        "parts": [{"text": self.get_system_prompt()}]
+                    },
+                    "generationConfig": {
+                        "responseMimeType": "application/json",
+                        "temperature": config.LLM_TEMPERATURE,
+                        "maxOutputTokens": 2048
+                    }
+                }
+                
+                response = httpx.post(url, json=payload, timeout=60.0)
+                
+                if response.status_code == 200:
+                    resp_data = response.json()
+                    candidate = resp_data["candidates"][0]
+                    content_str = candidate["content"]["parts"][0]["text"]
+                    usage = resp_data.get("usageMetadata", {})
+                    output_tokens = usage.get("candidatesTokenCount", len(content_str) // 4)
+            else:
+                payload = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": config.LLM_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+                response = httpx.post(self.api_url, json=payload, timeout=60.0)
+                
+                if response.status_code == 200:
+                    resp_data = response.json()
+                    choice = resp_data["choices"][0]
+                    content_str = choice["message"]["content"]
+                    usage = resp_data.get("usage", {})
+                    output_tokens = usage.get("completion_tokens", len(content_str) // 4)
+
+            # Common processing if response was successful
+            if response.status_code == 200 and content_str:
                 # Parse JSON
                 try:
                     # Clean up code blocks if present
                     json_str = content_str.strip()
-                    if json_str.startswith("```"):
-                        json_str = json_str.split("```")[1]
-                        if json_str.startswith("json"):
-                            json_str = json_str[4:]
+                    if "```" in json_str:
+                        parts = json_str.split("```")
+                        for part in parts:
+                            part_clean = part.strip()
+                            if part_clean.startswith("json"):
+                                json_str = part_clean[4:].strip()
+                                break
+                            elif part_clean.startswith("JSON"):
+                                json_str = part_clean[4:].strip()
+                                break
+                            elif part_clean.startswith("{") and part_clean.endswith("}"):
+                                json_str = part_clean
+                                break
                     
-                    parsed_json = json.loads(json_str)
+                    try:
+                        parsed_json = json.loads(json_str)
+                    except json.JSONDecodeError:
+                        start_idx = json_str.find("{")
+                        end_idx = json_str.rfind("}")
+                        if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                            json_str_sub = json_str[start_idx:end_idx+1]
+                            parsed_json = json.loads(json_str_sub)
+                        else:
+                            raise
                     action_name = parsed_json.get("action", "rest").lower().strip()
                     reasoning = parsed_json.get("reasoning", "")
                     
@@ -127,7 +187,6 @@ class LLMClient:
                         action_args["text"] = parsed_json.get("text", "")
                     
                     # Update local full conversation history
-                    # We store the user observation and assistant response
                     self.history.append({"role": "user", "content": current_observation})
                     self.history.append({"role": "assistant", "content": content_str})
                     
