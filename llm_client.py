@@ -80,6 +80,7 @@ class LLMClient:
         messages.append({"role": "user", "content": current_observation})
 
         is_gemini = "gemini" in self.model_name.lower()
+        is_openrouter = ("openrouter/" in self.model_name.lower()) or (":free" in self.model_name.lower())
 
         action_name = "rest"
         action_args = {}
@@ -141,6 +142,57 @@ class LLMClient:
                     content_str = candidate["content"]["parts"][0]["text"]
                     usage = resp_data.get("usageMetadata", {})
                     output_tokens = usage.get("candidatesTokenCount", len(content_str) // 4)
+            elif is_openrouter:
+                import os
+                api_key = os.environ.get("OPENROUTER_API_KEY", "")
+                if not api_key:
+                    return "rest", {}, "Error: OPENROUTER_API_KEY not found in environment or .env file.", 0, True
+
+                url = "https://openrouter.ai/api/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "HTTP-Referer": "https://github.com/messiay/JunkWorld",
+                    "X-Title": "Junk World Simulator",
+                    "Content-Type": "application/json"
+                }
+
+                # If they passed e.g. "llama-3.1-8b-instruct:free", map to the full OpenRouter model name
+                model_to_use = self.model_name
+                if "/" not in model_to_use:
+                    # Lookups/fallbacks for common clean names
+                    if "llama" in model_to_use:
+                        model_to_use = "meta-llama/llama-3.1-8b-instruct:free"
+                    elif "qwen" in model_to_use:
+                        model_to_use = "qwen/qwen-2.5-72b-instruct:free"
+                    elif "gemma" in model_to_use:
+                        model_to_use = "google/gemma-2-9b-it:free"
+
+                payload = {
+                    "model": model_to_use,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": config.LLM_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+
+                # Call with retry on rate limit (429)
+                max_retries = 5
+                retry_delay = 2.0
+                for attempt in range(max_retries):
+                    response = httpx.post(url, json=payload, headers=headers, timeout=60.0)
+                    if response.status_code == 429:
+                        print(f"Rate limit (429) hit. Retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    break
+                
+                if response.status_code == 200:
+                    resp_data = response.json()
+                    choice = resp_data["choices"][0]
+                    content_str = choice["message"]["content"]
+                    usage = resp_data.get("usage", {})
+                    output_tokens = usage.get("completion_tokens", len(content_str) // 4)
             else:
                 payload = {
                     "model": self.model_name,
