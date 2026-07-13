@@ -34,7 +34,7 @@ NODE_REGEN_TICKS = 15
 
 # LLM API configuration
 OLLAMA_API_URL = os.environ.get("OLLAMA_API_URL", "http://localhost:11434/v1/chat/completions")
-DEFAULT_MODEL = os.environ.get("JUNK_WORLD_MODEL", "gemma2:2b")
+DEFAULT_MODEL = os.environ.get("JUNK_WORLD_MODEL", "mistral")
 LLM_TEMPERATURE = 0.2
 
 # Logging configurations
