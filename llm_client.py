@@ -81,6 +81,7 @@ class LLMClient:
 
         is_gemini = "gemini" in self.model_name.lower()
         is_openrouter = ("openrouter/" in self.model_name.lower()) or (":free" in self.model_name.lower())
+        is_sambanova = ("sambanova/" in self.model_name.lower()) or ("sambanova" in self.model_name.lower())
 
         action_name = "rest"
         action_args = {}
@@ -166,6 +167,59 @@ class LLMClient:
                         model_to_use = "qwen/qwen-2.5-72b-instruct:free"
                     elif "gemma" in model_to_use:
                         model_to_use = "google/gemma-2-9b-it:free"
+
+                payload = {
+                    "model": model_to_use,
+                    "messages": messages,
+                    "max_tokens": max_tokens,
+                    "temperature": config.LLM_TEMPERATURE,
+                    "response_format": {"type": "json_object"}
+                }
+
+                # Call with retry on rate limit (429)
+                max_retries = 5
+                retry_delay = 2.0
+                for attempt in range(max_retries):
+                    response = httpx.post(url, json=payload, headers=headers, timeout=60.0)
+                    if response.status_code == 429:
+                        print(f"Rate limit (429) hit. Retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                        continue
+                    break
+                
+                if response.status_code == 200:
+                    resp_data = response.json()
+                    choice = resp_data["choices"][0]
+                    content_str = choice["message"]["content"]
+                    usage = resp_data.get("usage", {})
+                    output_tokens = usage.get("completion_tokens", len(content_str) // 4)
+            elif is_sambanova:
+                import os
+                api_key = os.environ.get("SAMBANOVA_API_KEY", "")
+                if not api_key:
+                    return "rest", {}, "Error: SAMBANOVA_API_KEY not found in environment or .env file.", 0, True
+
+                url = "https://api.sambanova.ai/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                }
+
+                # Normalize model names
+                model_to_use = self.model_name
+                if model_to_use.lower().startswith("sambanova/"):
+                    model_to_use = model_to_use[len("sambanova/"):]
+
+                model_lower = model_to_use.lower()
+                if "llama" in model_lower:
+                    model_to_use = "Meta-Llama-3.3-70B-Instruct"
+                elif "deepseek" in model_lower:
+                    model_to_use = "DeepSeek-V3.1"
+                elif "gemma" in model_lower:
+                    model_to_use = "gemma-4-31B-it"
+                else:
+                    model_to_use = "Meta-Llama-3.3-70B-Instruct"
 
                 payload = {
                     "model": model_to_use,
