@@ -210,6 +210,12 @@ class Simulation:
             )
             latency = time.time() - start_time
 
+            # Enforce a step delay if using a cloud model to prevent hitting rate limits
+            is_cloud = "gemini" in self.llm_client.model_name.lower() or "openrouter" in self.llm_client.model_name.lower() or "free" in self.llm_client.model_name.lower()
+            if is_cloud and config.LLM_STEP_DELAY > 0:
+                sleep_time = max(0.1, config.LLM_STEP_DELAY - latency)
+                time.sleep(sleep_time)
+
             # Apply Cognitive Tax immediately to agent's charge
             flat_tax = config.LLM_THINK_TAX_FLAT
             scaled_tax = config.LLM_THINK_TAX_TOKEN_SCALE * tokens_used
