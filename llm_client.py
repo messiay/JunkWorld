@@ -9,6 +9,7 @@ class LLMClient:
         self.model_name = model_name or config.DEFAULT_MODEL
         # Stores conversation history: list of dicts {"role": "user"|"assistant", "content": "..."}
         self.history = []
+        self.cloud_call_count = 0
 
     def reset_history(self):
         """Clears the conversational memory. Called when a new generation starts."""
@@ -82,6 +83,13 @@ class LLMClient:
         is_gemini = "gemini" in self.model_name.lower()
         is_openrouter = ("openrouter/" in self.model_name.lower()) or (":free" in self.model_name.lower())
         is_sambanova = ("sambanova/" in self.model_name.lower()) or ("sambanova" in self.model_name.lower())
+        is_cloud = is_gemini or is_openrouter or is_sambanova
+
+        if is_cloud:
+            if hasattr(self, "cloud_call_count") and self.cloud_call_count >= config.LLM_SESSION_CALL_LIMIT:
+                print(f"\n[WARNING] Session cloud call limit reached ({config.LLM_SESSION_CALL_LIMIT}). Intercepting request to preserve quota.")
+                return "rest", {}, f"Session cloud call limit reached ({config.LLM_SESSION_CALL_LIMIT}). Simulation paused to preserve quota.", 0, True
+            self.cloud_call_count += 1
 
         action_name = "rest"
         action_args = {}
