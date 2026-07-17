@@ -271,7 +271,7 @@ class LLMClient:
                 max_retries = 5
                 retry_delay = 2.0
                 for attempt in range(max_retries):
-                    response = httpx.post(self.api_url, json=payload, timeout=60.0)
+                    response = httpx.post(self.api_url, json=payload, timeout=180.0)
                     if response.status_code == 429:
                         print(f"Rate limit (429) hit. Retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
                         time.sleep(retry_delay)
