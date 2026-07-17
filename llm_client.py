@@ -70,6 +70,8 @@ class LLMClient:
         # Dynamic memory limits
         k_turns = config.get_episodic_memory_limit(generation)
         max_tokens = config.get_max_tokens_limit(generation)
+        if "deepseek" in self.model_name.lower():
+            max_tokens = 2048
 
         # Truncate history to keep only the last K turns (1 turn = 1 user message + 1 assistant message)
         # That means we keep last 2 * K messages
@@ -260,9 +262,10 @@ class LLMClient:
                     "model": self.model_name,
                     "messages": messages,
                     "max_tokens": max_tokens,
-                    "temperature": config.LLM_TEMPERATURE,
-                    "response_format": {"type": "json_object"}
+                    "temperature": config.LLM_TEMPERATURE
                 }
+                if "deepseek" not in self.model_name.lower():
+                    payload["response_format"] = {"type": "json_object"}
                 
                 # Call with retry on rate limit (429)
                 max_retries = 5
