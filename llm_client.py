@@ -346,6 +346,7 @@ class LLMClient:
             "generation": generation,
             "tick": ticks_survived,
             "model": self.model_name,
+            "temperature": config.LLM_TEMPERATURE,
             "messages": messages,
             "raw_response": content_str,
             "parsed_action": action_name,
