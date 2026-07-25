@@ -10,6 +10,12 @@ class LLMClient:
         # Stores conversation history: list of dicts {"role": "user"|"assistant", "content": "..."}
         self.history = []
         self.cloud_call_count = 0
+        
+        # Load multi-key list from environment
+        import os
+        keys_str = os.environ.get("GEMINI_API_KEYS", "") or os.environ.get("GEMINI_API_KEY", "")
+        self.gemini_keys = [k.strip() for k in keys_str.split(",") if k.strip()]
+        self.current_gemini_key_idx = 0
 
     def reset_history(self):
         """Clears the conversational memory. Called when a new generation starts."""
@@ -88,9 +94,17 @@ class LLMClient:
         is_cloud = is_gemini or is_openrouter or is_sambanova
 
         if is_cloud:
-            if hasattr(self, "cloud_call_count") and self.cloud_call_count >= config.LLM_SESSION_CALL_LIMIT:
-                print(f"\n[WARNING] Session cloud call limit reached ({config.LLM_SESSION_CALL_LIMIT}). Intercepting request to preserve quota.")
-                return "rest", {}, f"Session cloud call limit reached ({config.LLM_SESSION_CALL_LIMIT}). Simulation paused to preserve quota.", 0, True
+            import os
+            # If multi-key list is not initialized, re-check os.environ
+            if not getattr(self, "gemini_keys", None):
+                keys_str = os.environ.get("GEMINI_API_KEYS", "") or os.environ.get("GEMINI_API_KEY", "")
+                self.gemini_keys = [k.strip() for k in keys_str.split(",") if k.strip()]
+                self.current_gemini_key_idx = 0
+
+            max_allowed = config.LLM_SESSION_CALL_LIMIT * max(1, len(self.gemini_keys)) if (is_gemini and self.gemini_keys) else config.LLM_SESSION_CALL_LIMIT
+            if hasattr(self, "cloud_call_count") and self.cloud_call_count >= max_allowed:
+                print(f"\n[WARNING] Session cloud call limit reached ({max_allowed}). Intercepting request to preserve quota.")
+                return "rest", {}, f"Session cloud call limit reached ({max_allowed}). Simulation paused to preserve quota.", 0, True
             self.cloud_call_count += 1
 
         action_name = "rest"
@@ -103,12 +117,14 @@ class LLMClient:
         try:
             if is_gemini:
                 import os
-                api_key = os.environ.get("GEMINI_API_KEY", "")
-                if not api_key:
-                    return "rest", {}, "Error: GEMINI_API_KEY not found in environment or .env file.", 0, True
+                if not self.gemini_keys:
+                    api_key = os.environ.get("GEMINI_API_KEY", "")
+                    if api_key:
+                        self.gemini_keys = [api_key]
+                if not self.gemini_keys:
+                    return "rest", {}, "Error: GEMINI_API_KEYS / GEMINI_API_KEY not found in environment or .env file.", 0, True
 
                 model_to_use = self.model_name
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_to_use}:generateContent?key={api_key}"
 
                 # Format contents for Google AI Studio
                 contents = []
@@ -135,16 +151,25 @@ class LLMClient:
                     }
                 }
                 
-                # Call with retry on rate limit (429)
+                # Call with key rotation on rate limit (429)
                 max_retries = 5
                 retry_delay = 2.0
                 for attempt in range(max_retries):
+                    current_key = self.gemini_keys[self.current_gemini_key_idx % len(self.gemini_keys)]
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_to_use}:generateContent?key={current_key}"
+                    
                     response = httpx.post(url, json=payload, timeout=60.0)
                     if response.status_code == 429:
-                        print(f"Rate limit (429) hit. Retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2
-                        continue
+                        if len(self.gemini_keys) > 1 and (self.current_gemini_key_idx + 1) < len(self.gemini_keys):
+                            self.current_gemini_key_idx += 1
+                            next_key_num = self.current_gemini_key_idx + 1
+                            print(f"\n[INFO] Gemini Key #{self.current_gemini_key_idx} hit rate limit (429). Rotating to Key #{next_key_num}/{len(self.gemini_keys)}!")
+                            continue
+                        else:
+                            print(f"Rate limit (429) hit across all Gemini keys. Retrying in {retry_delay}s... (Attempt {attempt+1}/{max_retries})")
+                            time.sleep(retry_delay)
+                            retry_delay *= 2
+                            continue
                     break
                 
                 if response.status_code == 200:
